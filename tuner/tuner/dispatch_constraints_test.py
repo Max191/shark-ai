@@ -14,7 +14,7 @@ import z3  # type: ignore
 from typing import Generator
 
 from iree.compiler import ir  # type: ignore
-from iree.compiler.dialects import iree_gpu  # type: ignore
+from iree.compiler.dialects import iree_gpu, iree_codegen  # type: ignore
 
 from . import common
 from . import dispatch_constraints
@@ -31,14 +31,20 @@ def tuner_ctx() -> Generator[common.TunerContext, None, None]:
 
 
 def test_generate_solutions(tuner_ctx: common.TunerContext) -> None:
-    matmul_size = common.MatmulSize(2048, 3840, 1280)
+    matmul_size = common.ContractionSizes([2048], [3840], [1280], [])
+    cdims = common.ContractionDimensions([], [0], [1], [2])
     lhs_type = common.ShapedType([2048, 1280], tuner_ctx.type.f16)
     rhs_type = common.ShapedType([3840, 1280], tuner_ctx.type.f16)
     res_type = common.ShapedType([2048, 3840], tuner_ctx.type.f32)
     problem_size = common.ProblemSize(
-        matmul_size, lhs_type, rhs_type, res_type, common.DispatchKind.mmt
+        matmul_size,
+        lhs_type,
+        rhs_type,
+        res_type,
+        common.DispatchKind.contraction,
+        cdims,
     )
-    configs = dispatch_constraints.generate_solutions(
+    configs_vector_distribute = dispatch_constraints.generate_solutions(
         tuner_ctx,
         problem_size,
         4,
@@ -48,18 +54,39 @@ def test_generate_solutions(tuner_ctx: common.TunerContext) -> None:
             iree_gpu.MMAIntrinsic.MFMA_I32_16x16x32_I8,
             iree_gpu.MMAIntrinsic.MFMA_I32_32x32x16_I8,
         ],
+        iree_codegen.DispatchLoweringPassPipeline.LLVMGPUVectorDistribute,
+    )
+    assert configs_vector_distribute is not None
+
+    configs_tile_and_fuse = dispatch_constraints.generate_solutions(
+        tuner_ctx,
+        problem_size,
+        4,
+        [
+            iree_gpu.MMAIntrinsic.MFMA_F32_16x16x16_F16,
+            iree_gpu.MMAIntrinsic.MFMA_F32_32x32x8_F16,
+            iree_gpu.MMAIntrinsic.MFMA_I32_16x16x32_I8,
+            iree_gpu.MMAIntrinsic.MFMA_I32_32x32x16_I8,
+        ],
+        iree_codegen.DispatchLoweringPassPipeline.LLVMGPUTileAndFuse,
     )
 
-    assert configs is not None
+    assert configs_tile_and_fuse is not None
 
 
 def test_calculate_shared_memory_usage_in_bytes(tuner_ctx: common.TunerContext) -> None:
-    matmul_size = common.MatmulSize(1024, 1024, 1024)
+    matmul_size = common.ContractionSizes([1024], [1024], [1024], [])
+    cdims = common.ContractionDimensions([], [0], [1], [2])
     lhs_type = common.ShapedType([1024, 1024], tuner_ctx.type.f16)
     rhs_type = common.ShapedType([1024, 1024], tuner_ctx.type.f16)
     res_type = common.ShapedType([1024, 1024], tuner_ctx.type.f32)
     problem_size = common.ProblemSize(
-        matmul_size, lhs_type, rhs_type, res_type, common.DispatchKind.mmt
+        matmul_size,
+        lhs_type,
+        rhs_type,
+        res_type,
+        common.DispatchKind.contraction,
+        cdims,
     )
     assert (
         dispatch_constraints.calculate_shared_memory_usage_in_bytes(
@@ -70,7 +97,12 @@ def test_calculate_shared_memory_usage_in_bytes(tuner_ctx: common.TunerContext) 
 
     lhs_type = common.ShapedType([1024, 1024], tuner_ctx.type.i8)
     problem_size = common.ProblemSize(
-        matmul_size, lhs_type, rhs_type, res_type, common.DispatchKind.mmt
+        matmul_size,
+        lhs_type,
+        rhs_type,
+        res_type,
+        common.DispatchKind.contraction,
+        cdims,
     )
     assert (
         dispatch_constraints.calculate_shared_memory_usage_in_bytes(
@@ -81,7 +113,12 @@ def test_calculate_shared_memory_usage_in_bytes(tuner_ctx: common.TunerContext) 
 
     rhs_type = common.ShapedType([1024, 1024], tuner_ctx.type.i32)
     problem_size = common.ProblemSize(
-        matmul_size, lhs_type, rhs_type, res_type, common.DispatchKind.mmt
+        matmul_size,
+        lhs_type,
+        rhs_type,
+        res_type,
+        common.DispatchKind.contraction,
+        cdims,
     )
     assert (
         dispatch_constraints.calculate_shared_memory_usage_in_bytes(
@@ -117,7 +154,12 @@ def test_generate_tile_and_fuse_constraints_valid_input(
     rhs_type = common.ShapedType([2, 6, 8, 16, 64, 128], tuner_ctx.type.f16)
     res_type = common.ShapedType([2, 4, 6, 16, 32, 64], tuner_ctx.type.f32)
     problem_size = common.ProblemSize(
-        matmul_size, lhs_type, rhs_type, res_type, common.DispatchKind.contraction
+        matmul_size,
+        lhs_type,
+        rhs_type,
+        res_type,
+        common.DispatchKind.contraction,
+        cdims,
     )
     # Define input parameters as z3 Ints
     m, n, k = (
@@ -186,7 +228,12 @@ def test_generate_tile_and_fuse_constraints_invalid_input(
     rhs_type = common.ShapedType([2, 6, 8, 16, 64, 128], tuner_ctx.type.f16)
     res_type = common.ShapedType([2, 4, 6, 16, 32, 64], tuner_ctx.type.f32)
     problem_size = common.ProblemSize(
-        matmul_size, lhs_type, rhs_type, res_type, common.DispatchKind.contraction
+        matmul_size,
+        lhs_type,
+        rhs_type,
+        res_type,
+        common.DispatchKind.contraction,
+        cdims,
     )
     # Define input parameters as z3 Ints
     m, n, k = (
@@ -239,18 +286,24 @@ def test_generate_tile_and_fuse_constraints_invalid_input(
 def test_generate_vector_distribute_constraints_valid_input(
     tuner_ctx: common.TunerContext,
 ) -> None:
-    matmul_size = common.MatmulSize(1024, 1024, 1024)
+    matmul_size = common.ContractionSizes([1024], [1024], [1024], [])
+    cdims = common.ContractionDimensions([], [0], [1], [2])
     lhs_type = common.ShapedType([1024, 1024], tuner_ctx.type.f16)
     rhs_type = common.ShapedType([1024, 1024], tuner_ctx.type.f16)
     res_type = common.ShapedType([1024, 1024], tuner_ctx.type.f32)
     problem_size = common.ProblemSize(
-        matmul_size, lhs_type, rhs_type, res_type, common.DispatchKind.mmt
+        matmul_size,
+        lhs_type,
+        rhs_type,
+        res_type,
+        common.DispatchKind.contraction,
+        cdims,
     )
     # Define input parameters as z3 Ints
     m, n, k = (
-        dispatch_constraints.z3.Int("m"),
-        z3.Int("n"),
-        z3.Int("k"),
+        [z3.Int("m")],
+        [z3.Int("n")],
+        [z3.Int("k")],
     )
     subgroup_size = z3.Int("subgroup_size")
     intrinsic_mn = z3.Int("intrinsic_mn")
@@ -293,17 +346,23 @@ def test_generate_vector_distribute_constraints_invalid_input(
     tuner_ctx: common.TunerContext,
 ) -> None:
     # Define input parameters that should lead to unsatisfiable constraints
-    matmul_size = common.MatmulSize(1024, 1024, 1024)
+    matmul_size = common.ContractionSizes([1024], [1024], [1024], [])
+    cdims = common.ContractionDimensions([], [0], [1], [2])
     lhs_type = common.ShapedType([1024, 1024], tuner_ctx.type.f16)
     rhs_type = common.ShapedType([1024, 1024], tuner_ctx.type.f16)
     res_type = common.ShapedType([1024, 1024], tuner_ctx.type.f32)
     problem_size = common.ProblemSize(
-        matmul_size, lhs_type, rhs_type, res_type, common.DispatchKind.mmt
+        matmul_size,
+        lhs_type,
+        rhs_type,
+        res_type,
+        common.DispatchKind.contraction,
+        cdims,
     )
     m, n, k = (
-        z3.Int("m"),
-        z3.Int("n"),
-        z3.Int("k"),
+        [z3.Int("m")],
+        [z3.Int("n")],
+        [z3.Int("k")],
     )
     subgroup_size = z3.Int("subgroup_size")
     intrinsic_mn = z3.Int("intrinsic_mn")
@@ -334,7 +393,7 @@ def test_generate_vector_distribute_constraints_invalid_input(
             iree_gpu.MMAIntrinsic.MFMA_I32_32x32x16_I8,
         ],
     )
-    constraints.append(m > 1000)  # Adding an additional unsatisfiable constraint
+    constraints.append(m[0] > 1000)  # Adding an additional unsatisfiable constraint
 
     solver = z3.Solver()
     solver.add(constraints)

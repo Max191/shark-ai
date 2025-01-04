@@ -88,12 +88,8 @@ def generate_vector_distribute_constraints(
     waves_per_eu,
     mma_intrinsics: list[iree_gpu.MMAIntrinsic],
 ):
-    M, N, K = (
-        problem_size.matmul_size.M,
-        problem_size.matmul_size.N,
-        problem_size.matmul_size.K,
-    )
-    m, n, k = tile_sizes
+    M, N, K = problem_size.MNK
+    m_vars, n_vars, k_vars = tile_sizes
     intrinsic_mn, intrinsic_k = intrinsic_size
     wg_x, wg_y, wg_z = workgroup_size
     wg_threads = z3.Int("wg_threads")
@@ -105,13 +101,19 @@ def generate_vector_distribute_constraints(
         )
     ]
     subgroup_k_count = 1
+    constraints += [v == 0 for v in m_vars[:-1]]
+    constraints += [v == 0 for v in n_vars[:-1]]
+    constraints += [v == 0 for v in k_vars[:-1]]
+    m = m_vars[-1]
+    n = n_vars[-1]
+    k = k_vars[-1]
     constraints += [
         m >= intrinsic_mn,
         m <= 512,
-        m <= M,
+        m <= M[-1],
     ]
-    constraints += [n >= intrinsic_mn, n <= 512, n <= N, N % n == 0]
-    constraints += [k >= intrinsic_k, k <= 512, k <= K, K % k == 0]
+    constraints += [n >= intrinsic_mn, n <= 512, n <= N[-1], N[-1] % n == 0]
+    constraints += [k >= intrinsic_k, k <= 512, k <= K[-1], K[-1] % k == 0]
     for x in (subgroup_m_count, subgroup_n_count):
         constraints += [x >= 1, x <= 32]
 
@@ -160,7 +162,7 @@ def generate_tile_and_fuse_constraints(
     waves_per_eu,
     mma_intrinsics: list[iree_gpu.MMAIntrinsic],
 ):
-    M, N, K = problem_size.MNK_lists
+    M, N, K = problem_size.MNK
     m_tiles, n_tiles, k_tiles, subgroup_m_tiles, subgroup_n_tiles = tile_sizes
     intrinsic_mn, intrinsic_k = intrinsic_size
     wg_x, wg_y, wg_z = workgroup_size
@@ -284,7 +286,7 @@ def generate_solutions(
     mma_intrinsics: list[iree_gpu.MMAIntrinsic],
     codegen_pipeline: iree_codegen.DispatchLoweringPassPipeline = iree_codegen.DispatchLoweringPassPipeline.LLVMGPUVectorDistribute,
 ) -> Iterator[iree_codegen.CompilationInfoAttr]:
-    M, N, K = problem_size.MNK_lists
+    M, N, K = problem_size.MNK
     tuner_ctx.logger.info(f"{M},{N},{K}")
     m_vars = [z3.Int(f"m{i}") for i in range(len(M))]
     n_vars = [z3.Int(f"n{i}") for i in range(len(N))]
@@ -321,7 +323,7 @@ def generate_solutions(
         case iree_codegen.DispatchLoweringPassPipeline.LLVMGPUVectorDistribute:
             constraints = generate_vector_distribute_constraints(
                 problem_size,
-                [m_vars[0], n_vars[0], k_vars[0]],
+                [m_vars, n_vars, k_vars],
                 num_subgrups,
                 subgroup_size,
                 [intrinsic_mn, intrinsic_k],
@@ -331,7 +333,8 @@ def generate_solutions(
                 waves_per_eu,
                 mma_intrinsics,
             )
-            constraints += [subgroup_m_vars[0] == 0, subgroup_n_vars[0] == 0]
+            constraints += [v == 0 for v in subgroup_m_vars]
+            constraints += [v == 0 for v in subgroup_n_vars]
         case iree_codegen.DispatchLoweringPassPipeline.LLVMGPUTileAndFuse:
             constraints = generate_tile_and_fuse_constraints(
                 problem_size,
@@ -360,17 +363,6 @@ def generate_solutions(
             problem_size.lhs_type.element_type,
             problem_size.rhs_type.element_type,
         )
-        if problem_size.cdims is None:
-            assert (
-                codegen_pipeline
-                == iree_codegen.DispatchLoweringPassPipeline.LLVMGPUVectorDistribute
-            ), "only LLVMGPUVectorDistribute problem sizes can have no contraction dimensions"
-            problem_size.cdims = ContractionDimensions(
-                batch=[],
-                m=[0],
-                n=[1],
-                k=[2],
-            )
 
         def add_cdim_tile_sizes(tile_sizes, cdims, csizes):
             for dim, size in zip(cdims, csizes):

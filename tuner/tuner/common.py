@@ -45,12 +45,8 @@ class TunerContext:
 
 
 class DispatchKind(Enum):
-    conv = 1
-    mmt = 2
-    contraction = 3
-    batch_mmt = 4
-    batch_matmul = 5
-    broadcast_rhs_mmt = 6
+    conv = 0
+    contraction = 1
 
 
 @dataclass
@@ -71,14 +67,6 @@ class ShapedType:
 
 
 @dataclass
-class MatmulSize:
-    M: int
-    N: int
-    K: int
-    B: int = 1
-
-
-@dataclass
 class ContractionSizes:
     M: list[int]
     N: list[int]
@@ -96,21 +84,15 @@ class ContractionDimensions:
 
 @dataclass
 class ProblemSize:
-    matmul_size: MatmulSize | ContractionSizes
+    matmul_size: ContractionSizes
     lhs_type: ShapedType
     rhs_type: ShapedType
     res_type: ShapedType
     dispatch_kind: DispatchKind
-    cdims: Optional[ContractionDimensions] = None
+    cdims: ContractionDimensions
 
     @property
-    def MNK(self) -> tuple[int | list[int], int | list[int], int | list[int]]:
-        return (self.matmul_size.M, self.matmul_size.N, self.matmul_size.K)
-
-    @property
-    def MNK_lists(self) -> tuple[list[int], list[int], list[int]]:
-        if isinstance(self.matmul_size, MatmulSize):
-            return ([self.matmul_size.M], [self.matmul_size.N], [self.matmul_size.K])
+    def MNK(self) -> tuple[list[int], list[int], list[int]]:
         return (self.matmul_size.M, self.matmul_size.N, self.matmul_size.K)
 
 
@@ -123,11 +105,10 @@ def get_compatible_mfma_intrinsics(
         a_type, b_type, c_type = mma_attr.abc_element_types
         if not isinstance(problem_size.res_type.element_type, type(c_type)):
             return False
-        if problem_size.dispatch_kind != DispatchKind.batch_matmul:
-            if not isinstance(
-                problem_size.lhs_type.element_type, type(a_type)
-            ) or not isinstance(problem_size.rhs_type.element_type, type(b_type)):
-                return False
+        if not isinstance(
+            problem_size.lhs_type.element_type, type(a_type)
+        ) or not isinstance(problem_size.rhs_type.element_type, type(b_type)):
+            return False
         return True
 
     return list(filter(is_comptible, mma_intrinsics))
