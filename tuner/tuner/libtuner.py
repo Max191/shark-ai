@@ -50,7 +50,7 @@ DEFAULT_DEVICE_LIST = ["hip://0"]
 
 # Default values for max number of workers
 DEFAULT_MAX_CPU_WORKERS = (
-    multiprocessing.cpu_count() // 2
+    multiprocessing.cpu_count() // 4
 )  # the actual amount of worker that will be generated = min(max_cpu_workers, len(task_list))
 
 # Declare global variables at the module level for multiprocessing
@@ -800,14 +800,17 @@ def benchmark_baseline(
         )
     ] * len(devices)
 
-    worker_context_queue = create_worker_context_queue(devices)
-    baseline_results = multiprocess_progress_wrapper(
-        num_worker=len(devices),
-        task_list=task_list,
-        function=run_iree_benchmark_module_command,
-        initializer=init_worker_context,
-        initializer_inputs=(worker_context_queue,),
-    )
+    baseline_results = []
+    global device_id
+    with tqdm(total=len(task_list)) as pbar:
+        for i, device in enumerate(devices):
+            device_id = device
+            result = run_iree_benchmark_module_command(
+                task_list[i]
+            )
+            baseline_results.append(result)
+            pbar.update(1)  # Update progress bar
+    del device_id
     return baseline_results
 
 
