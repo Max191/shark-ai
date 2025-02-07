@@ -85,6 +85,28 @@ class ContractionOpInterfaceTuner(DispatchTuner, ContractionOpInterfaceParser):
         )
 
 
+class HorizontalMultiContractionOpInterfaceTuner(DispatchTuner, HorizontalMultiContractionOpInterfaceParser):
+    def get_td_spec(
+        self,
+        ir_module: ir.Module,
+        compilation_info: iree_codegen.CompilationInfoAttr,
+        args: argparse.Namespace,
+        problem_size: Optional[ProblemSize],
+    ) -> ir.Module:
+        multi_contraction_op: ir.Operation = self.get_multi_contraction_operation(ir_module)
+        lhs_type = problem_size.lhs_type
+        rhs_type = problem_size.rhs_type
+        acc_type = problem_size.res_type
+        matmul_size = problem_size.matmul_size
+        BMNK_sizes = matmul_size.B + matmul_size.M + matmul_size.N + matmul_size.K
+        BMNK = "x".join([str(s) for s in BMNK_sizes])
+        # TODO(Max191): Get the function name from the func.func in the input module.
+        func_name = f"match_horizontal_multi_contraction_{BMNK}_{lhs_type.element_type}x{rhs_type.element_type}x{acc_type.element_type}"
+        return build_td_spec(
+            ir_module.context, multi_contraction_op, compilation_info, func_name, args
+        )
+
+
 class ConvolutionOpInterfaceTuner(DispatchTuner, ConvolutionOpInterfaceParser):
     def get_td_spec(
         self,
@@ -167,6 +189,7 @@ def generate_configs_and_td_specs(
     dispatch_tuner_registry.register(
         [
             ContractionOpInterfaceTuner(),
+            HorizontalMultiContractionOpInterfaceTuner(),
             ConvolutionOpInterfaceTuner(),
         ]
     )

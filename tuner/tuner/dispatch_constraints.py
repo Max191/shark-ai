@@ -149,6 +149,97 @@ def generate_vector_distribute_constraints(
     return constraints
 
 
+def generate_new_tile_and_fuse_constraints(
+    problem_size: ProblemSize,
+    tile_sizes: list[list[z3.ArithRef]],
+    num_subgroups: int,
+    subgroup_size: z3.ArithRef,
+    intrinsic_size: list[z3.ArithRef],
+    workgroup_size: list[z3.ArithRef],
+    subgroup_m_count: z3.ArithRef,
+    subgroup_n_count: z3.ArithRef,
+    mma_intrinsics: list[iree_gpu.MMAIntrinsic],
+):
+    M, N, K = problem_size.MNK
+    m_tiles, n_tiles, k_tiles, subgroup_m_tiles, subgroup_n_tiles = tile_sizes
+    intrinsic_mn, intrinsic_k = intrinsic_size
+    wg_x, wg_y, wg_z = workgroup_size
+    wg_threads = wg_x
+    constraints = [wg_y == 1, wg_z == 1]
+    constraints += [subgroup_size == 64, wg_threads <= 1024]
+    constraints += [
+        get_mfma_intrinsic_constraints(
+            problem_size, intrinsic_mn, intrinsic_mn, intrinsic_k, mma_intrinsics
+        )
+    ]
+
+    constraints += [
+        m_tiles[-1] >= intrinsic_mn,
+        m_tiles[-1] % intrinsic_mn == 0,
+        n_tiles[-1] >= intrinsic_mn,
+        n_tiles[-1] % intrinsic_mn == 0,
+        k_tiles[-1] >= intrinsic_k,
+        k_tiles[-1] % intrinsic_k == 0,
+        math.prod(m_tiles) <= 512,
+        math.prod(n_tiles) <= 512,
+        math.prod(k_tiles) <= 512,
+    ]
+    constraints += [m_shape % m == 0 for m, m_shape in zip(m_tiles, M)]
+    constraints += [n_shape % n == 0 for n, n_shape in zip(n_tiles, N)]
+    constraints += [k_shape % k == 0 for k, k_shape in zip(k_tiles, K)]
+    constraints += [m >= 1 for m in m_tiles]
+    constraints += [n >= 1 for n in n_tiles]
+    constraints += [k >= 1 for k in k_tiles]
+    constraints += [m <= m_shape for m, m_shape in zip(m_tiles, M)]
+    constraints += [n <= n_shape for n, n_shape in zip(n_tiles, N)]
+    constraints += [k <= k_shape for k, k_shape in zip(k_tiles[:-1], K[:-1])]
+    for x in (subgroup_m_count, subgroup_n_count):
+        constraints += [x >= 1, x <= 32]
+
+    constraints += [
+        m % m_subgroup == 0
+        for m, m_subgroup in zip(m_tiles[:-1], subgroup_m_tiles[:-1])
+    ]
+    constraints += [
+        n % n_subgroup == 0
+        for n, n_subgroup in zip(n_tiles[:-1], subgroup_n_tiles[:-1])
+    ]
+    constraints += [m_tiles[-1] % (subgroup_m_tiles[-1] * intrinsic_mn) == 0]
+    constraints += [n_tiles[-1] % (subgroup_n_tiles[-1] * intrinsic_mn) == 0]
+    constraints += [m_subgroup >= 1 for m_subgroup in subgroup_m_tiles]
+    constraints += [n_subgroup >= 1 for n_subgroup in subgroup_n_tiles]
+
+    constraints += [
+        math.prod(m_tiles)
+        == math.prod(subgroup_m_tiles) * subgroup_m_count * intrinsic_mn,
+        z3.Or(
+            math.prod(m_tiles) * math.prod(k_tiles) % wg_threads == 0,
+            wg_threads % math.prod(m_tiles) * math.prod(k_tiles) == 0
+        )
+    ]
+    constraints += [
+        math.prod(n_tiles)
+        == math.prod(subgroup_n_tiles) * subgroup_n_count * intrinsic_mn,
+        z3.Or(
+            math.prod(n_tiles) * math.prod(k_tiles) % wg_threads == 0,
+            wg_threads % math.prod(n_tiles) * math.prod(k_tiles) == 0
+        )
+    ]
+    subgroups = subgroup_m_count * subgroup_n_count
+    if num_subgroups > 0:
+        constraints += [subgroups == num_subgroups]
+    else:
+        constraints += [subgroups >= 1, subgroups <= 10]
+    constraints += [wg_threads == subgroups * subgroup_size]
+
+    shared_memory = calculate_shared_memory_usage_in_bytes(
+        problem_size, m_tiles, n_tiles, k_tiles
+    )
+    constraints += [shared_memory <= 65536]
+
+    return constraints
+
+
 def generate_tile_and_fuse_constraints(
     problem_size: ProblemSize,
     tile_sizes: list[list[z3.ArithRef]],
@@ -446,9 +537,21 @@ def generate_solutions(
     solver = z3.Solver()
     match codegen_pipeline:
         case iree_codegen.DispatchLoweringPassPipeline.LLVMGPUVectorDistribute:
-            constraints = generate_vector_distribute_constraints(
+            # constraints = generate_vector_distribute_constraints(
+            #     problem_size,
+            #     [m_vars, n_vars, k_vars],
+            #     num_subgrups,
+            #     subgroup_size,
+            #     [intrinsic_mn, intrinsic_k],
+            #     [wg_x, wg_y, wg_z],
+            #     sg_m_cnt,
+            #     sg_n_cnt,
+            #     mma_intrinsics,
+            # )
+            # constraints += [v == 0 for v in subgroup_m_vars + subgroup_n_vars]
+            constraints = generate_new_tile_and_fuse_constraints(
                 problem_size,
-                [m_vars, n_vars, k_vars],
+                [m_vars, n_vars, k_vars, subgroup_m_vars, subgroup_n_vars],
                 num_subgrups,
                 subgroup_size,
                 [intrinsic_mn, intrinsic_k],
@@ -457,7 +560,6 @@ def generate_solutions(
                 sg_n_cnt,
                 mma_intrinsics,
             )
-            constraints += [v == 0 for v in subgroup_m_vars + subgroup_n_vars]
         case iree_codegen.DispatchLoweringPassPipeline.LLVMGPUTileAndFuse:
             constraints = generate_tile_and_fuse_constraints(
                 problem_size,

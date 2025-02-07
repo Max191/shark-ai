@@ -99,6 +99,69 @@ class ContractionOpInterfaceParser(DispatchParser):
         )
 
 
+# TODO(Max191): Support linalg named op versions of contraction ops. The
+# current matchers only work for linalg.generic ops.
+class HorizontalMultiContractionOpInterfaceParser(DispatchParser):
+    def supports(self, op_name: str) -> bool:
+        return (
+            "generic" in op_name
+        )
+
+    def get_multi_contraction_operation(
+        self,
+        ir_module: ir.Module,
+    ) -> Optional[ir.Operation]:
+        return match_root_op(ir_module, HorizontalMultiContractionOpInterfaceMatcher())
+
+    # TODO(Max191): Pass the ir_module directly instead of the template str.
+    def get_shapes(self, template: list[str]) -> ProblemSize:
+        matcher = HorizontalMultiContractionOpInterfaceMatcher()
+        ir_module = ir.Module.parse("\n".join(template))
+        contraction_op = match_root_op(ir_module, matcher)
+        assert contraction_op is not None, f"multi contraction op not found"
+        contraction_dims = matcher.contraction_dimensions
+        assert contraction_dims, "no contraction dimensions"
+        assert matcher.lhs_dims, "no lhs dimensions"
+        assert matcher.rhs_dims, "no rhs dimensions"
+        assert matcher.res_dims, "no result dimensions"
+        num_contractions = matcher.num_contractions
+        shared_lhs_idx = 0
+        first_rhs_idx = 1
+        first_res_idx = num_contractions + 1
+        shared_lhs_type = ir.RankedTensorType(contraction_op.operands[shared_lhs_idx].type)
+        first_rhs_type = ir.RankedTensorType(contraction_op.operands[first_rhs_idx].type)
+        first_res_type = ir.RankedTensorType(contraction_op.operands[first_res_idx].type)
+        matmul_size = ContractionSizes(
+            M=[
+                shared_lhs_type.shape[matcher.lhs_dims.index(dim)]
+                for dim in contraction_dims.m
+            ],
+            N=[
+                first_rhs_type.shape[matcher.rhs_dims[0].index(dim)]
+                for dim in contraction_dims.n
+            ],
+            K=[
+                shared_lhs_type.shape[matcher.lhs_dims.index(dim)]
+                for dim in contraction_dims.k
+            ],
+            B=[
+                shared_lhs_type.shape[matcher.lhs_dims.index(dim)]
+                for dim in contraction_dims.batch
+            ],
+        )
+        return ProblemSize(
+            matmul_size,
+            lhs_type=ShapedType(shared_lhs_type.shape, shared_lhs_type.element_type),
+            rhs_type=ShapedType(first_rhs_type.shape, first_rhs_type.element_type),
+            res_type=ShapedType(first_res_type.shape, first_res_type.element_type),
+            dispatch_kind=DispatchKind.contraction,
+            contraction_dims=contraction_dims,
+            lhs_expr_dims=[[d] for d in matcher.lhs_dims],
+            rhs_expr_dims=[[d] for d in matcher.rhs_dims[0]],
+            res_expr_dims=[[d] for d in matcher.res_dims[0]],
+        )
+
+
 # TODO(Max191): Support more convolution types. Only NHWC convs are supported.
 class ConvolutionOpInterfaceParser(DispatchParser):
     def __init__(self):

@@ -231,6 +231,46 @@ def get_convolution_dims(
     )
 
 
+def infer_contraction_dims(
+    maps: list[ir.AffineMap]
+) -> tuple[Optional[ContractionDimensions], list[int], list[int], list[int]]:
+    if len(maps) != 3:
+        return None
+    lhs_dims = get_map_result_dim_positions(maps[0])
+    rhs_dims = get_map_result_dim_positions(maps[1])
+    res_dims = get_map_result_dim_positions(maps[2])
+    if lhs_dims is None or rhs_dims is None or res_dims is None:
+        return False
+
+    batch_dims = []
+    m_dims = []
+    n_dims = []
+    k_dims = []
+
+    for d in range(maps[0].n_dims):
+        if d in lhs_dims and d in rhs_dims and d in res_dims:
+            batch_dims.append(d)
+            continue
+        if d in lhs_dims and d in res_dims:
+            m_dims.append(d)
+            continue
+        if d in rhs_dims and d in res_dims:
+            n_dims.append(d)
+            continue
+        if d in lhs_dims and d in rhs_dims:
+            k_dims.append(d)
+            continue
+        return False
+
+    contraction_dimensions = ContractionDimensions(
+        m=m_dims,
+        n=n_dims,
+        k=k_dims,
+        batch=batch_dims,
+    )
+    return (contraction_dimensions, lhs_dims, rhs_dims, res_dims)
+
+
 class ContractionOpInterfaceMatcher(GenericOpMatcher):
     def __init__(self) -> None:
         super().__init__()
@@ -248,43 +288,70 @@ class ContractionOpInterfaceMatcher(GenericOpMatcher):
         return True
 
     def match_indexing_maps(self, maps: list[ir.AffineMap]) -> bool:
-        if len(maps) != 3:
-            return False
-        lhs_dims = get_map_result_dim_positions(maps[0])
-        rhs_dims = get_map_result_dim_positions(maps[1])
-        res_dims = get_map_result_dim_positions(maps[2])
-        if lhs_dims is None or rhs_dims is None or res_dims is None:
-            return False
+        cdim_info = infer_contraction_dims(maps)
+        if not cdim_info:
+            return None
+        self.contraction_dimensions, self.lhs_dims, self.res_dims, self.res_dims = cdim_info
+        return True
 
-        batch_dims = []
-        m_dims = []
-        n_dims = []
-        k_dims = []
 
-        for d in range(maps[0].n_dims):
-            if d in lhs_dims and d in rhs_dims and d in res_dims:
-                batch_dims.append(d)
-                continue
-            if d in lhs_dims and d in res_dims:
-                m_dims.append(d)
-                continue
-            if d in rhs_dims and d in res_dims:
-                n_dims.append(d)
-                continue
-            if d in lhs_dims and d in rhs_dims:
-                k_dims.append(d)
-                continue
+class HorizontalMultiContractionOpInterfaceMatcher(GenericOpMatcher):
+    def __init__(self) -> None:
+        super().__init__()
+        self.contraction_dimensions: Optional[ContractionDimensions] = None
+        self.lhs_dims: Optional[list[int]] = None
+        self.rhs_dims: Optional[list[list[int]]] = None
+        self.res_dims: Optional[list[list[int]]] = None
+        self.num_contractions = 0
+
+    def match_operands(self, operands: ir.OpOperandList) -> bool:
+        if len(operands) < 3:
             return False
+        for operand in operands:
+            if not isinstance(operand.type, ir.ShapedType):
+                return False
+        return True
 
-        self.contraction_dimensions = ContractionDimensions(
-            m=m_dims,
-            n=n_dims,
-            k=k_dims,
-            batch=batch_dims,
-        )
-        self.lhs_dims = lhs_dims
-        self.rhs_dims = rhs_dims
-        self.res_dims = res_dims
+    def match_indexing_maps(self, maps: list[ir.AffineMap]) -> bool:
+        # There should be one LHS map at the start, and the remaining maps
+        # should be N RHS maps followed by N RES maps.
+        if len(maps) < 3:
+            return False
+        if (len(maps) - 1) % 2 != 0:
+            return False
+        num_contractions = int((len(maps) - 1) / 2)
+        lhs_map = maps[0]
+        rhs_maps = maps[1:1+num_contractions]
+        res_maps = maps[1+num_contractions:]
+        self.num_contractions = num_contractions
+
+        # Verify that each set of matching operands have contraction maps.
+        lhs_operands_dims = []
+        rhs_operands_dims = []
+        res_operands_dims = []
+        cdims_list = []
+        for rhs_map, res_map in zip(rhs_maps, res_maps):
+            cdim_info = infer_contraction_dims([lhs_map, rhs_map, res_map])
+            if not cdim_info:
+                return None
+            cdims, lhs_dims, rhs_dims, res_dims = cdim_info
+            # Verify that all cdims are the same.
+            if len(cdims_list) > 0 and cdims != cdims_list[-1]:
+                return None
+            # Verify that all lhs_dims are the same.
+            if len(lhs_operands_dims) > 0 and lhs_dims != lhs_operands_dims[-1]:
+                return None
+            cdims_list.append(cdims)
+            lhs_operands_dims.append(lhs_dims)
+            rhs_operands_dims.append(rhs_dims)
+            res_operands_dims.append(res_dims)
+
+        # All contraction dimensions and lhs_dims are the same. Only the
+        # rhs_dims and res_dims might differ
+        self.contraction_dimensions = cdims_list[0]
+        self.lhs_dims = lhs_operands_dims[0]
+        self.rhs_dims = rhs_operands_dims
+        self.res_dims = res_operands_dims
         return True
 
 

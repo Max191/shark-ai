@@ -25,7 +25,9 @@ def get_matcher_calls(op: ir.Operation, matchers: list[ir.Attribute], actions: l
     actions.extend(op.opview.attributes["actions"])
     return ir.WalkResult.INTERRUPT
 
-def get_extra_spec_info(spec_file: Path, used_matcher_names: list[str], used_action_names: list[str]):
+def get_extra_spec_info(spec_file: Optional[Path], used_matcher_names: list[str], used_action_names: list[str]):
+    if not spec_file:
+        return "", ""
     with open(spec_file) as f:
         spec = f.read()
     with ir.Context():
@@ -102,6 +104,8 @@ def build_td_spec(
         used_matcher_names=[func_name],
         used_action_names=["apply_op_config"],
     )
+    if len(extra_matcher_fn_calls) > 0:
+        extra_matcher_fn_calls = ", " + extra_matcher_fn_calls
     bbargs = []
     # The `root_op` attribute will prevent matching of ops without the attr in
     # the resulting TD spec matcher if it is not removed, so we remove it here.
@@ -131,9 +135,9 @@ def build_td_spec(
             # logic that causes failure to match when the same operand is
             # repeated. For now, still avoid adding duplicate SSA values to
             # prevent parsing failure.
-            logging.warning(
-                f"Root op has repeated operand. This can cause failure to match in the resulting TD spec at compile time."
-            )
+            # logging.warning(
+            #     f"Root op has repeated operand. This can cause failure to match in the resulting TD spec at compile time."
+            # )
             continue
         ssa_name = operand.get_name()
         operand_type = operand.type
@@ -168,7 +172,7 @@ def build_td_spec(
                 attributes {{ iree_codegen.tuning_spec_entrypoint }} {{
                 %res = transform.foreach_match in %variant_op
                     @{func_name} -> @apply_op_config
-                    , {extra_matcher_fn_calls}
+                    {extra_matcher_fn_calls}
                 : (!transform.any_op) -> !transform.any_op
                 transform.yield %res : !transform.any_op
             }}
