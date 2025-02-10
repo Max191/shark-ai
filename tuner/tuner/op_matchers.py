@@ -291,7 +291,7 @@ class ContractionOpInterfaceMatcher(GenericOpMatcher):
         cdim_info = infer_contraction_dims(maps)
         if not cdim_info:
             return None
-        self.contraction_dimensions, self.lhs_dims, self.res_dims, self.res_dims = cdim_info
+        self.contraction_dimensions, self.lhs_dims, self.rhs_dims, self.res_dims = cdim_info
         return True
 
 
