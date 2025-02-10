@@ -121,13 +121,15 @@ class HorizontalMultiContractionOpInterfaceParser(DispatchParser):
         assert contraction_op is not None, f"multi contraction op not found"
         contraction_dims = matcher.contraction_dimensions
         assert contraction_dims, "no contraction dimensions"
+        assert matcher.lhs_operands, "no lhs operands"
+        assert matcher.rhs_operands, "no rhs operands"
+        assert matcher.res_operands, "no res operands"
         assert matcher.lhs_dims, "no lhs dimensions"
         assert matcher.rhs_dims, "no rhs dimensions"
         assert matcher.res_dims, "no result dimensions"
-        num_contractions = matcher.num_contractions
-        shared_lhs_idx = 0
-        first_rhs_idx = 1
-        first_res_idx = num_contractions + 1
+        shared_lhs_idx = matcher.lhs_operands[0]
+        first_rhs_idx = matcher.rhs_operands[0]
+        first_res_idx = matcher.res_operands[0]
         shared_lhs_type = ir.RankedTensorType(contraction_op.operands[shared_lhs_idx].type)
         first_rhs_type = ir.RankedTensorType(contraction_op.operands[first_rhs_idx].type)
         first_res_type = ir.RankedTensorType(contraction_op.operands[first_res_idx].type)
@@ -156,6 +158,9 @@ class HorizontalMultiContractionOpInterfaceParser(DispatchParser):
             res_type=ShapedType(first_res_type.shape, first_res_type.element_type),
             dispatch_kind=DispatchKind.contraction,
             contraction_dims=contraction_dims,
+            lhs_operands=matcher.lhs_operands,
+            rhs_operands=matcher.rhs_operands,
+            res_operands=matcher.res_operands,
             lhs_expr_dims=[[d] for d in matcher.lhs_dims],
             rhs_expr_dims=[[d] for d in matcher.rhs_dims[0]],
             res_expr_dims=[[d] for d in matcher.res_dims[0]],

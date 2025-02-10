@@ -302,7 +302,9 @@ class HorizontalMultiContractionOpInterfaceMatcher(GenericOpMatcher):
         self.lhs_dims: Optional[list[int]] = None
         self.rhs_dims: Optional[list[list[int]]] = None
         self.res_dims: Optional[list[list[int]]] = None
-        self.num_contractions = 0
+        self.lhs_operands: Optional[list[int]] = None
+        self.rhs_operands: Optional[list[int]] = None
+        self.res_operands: Optional[list[int]] = None
 
     def match_operands(self, operands: ir.OpOperandList) -> bool:
         if len(operands) < 3:
@@ -320,12 +322,14 @@ class HorizontalMultiContractionOpInterfaceMatcher(GenericOpMatcher):
         if (len(maps) - 1) % 2 != 0:
             return False
         num_contractions = int((len(maps) - 1) / 2)
+        self.lhs_operands = [0]
+        self.rhs_operands = [i for i in range(1, 1+num_contractions)]
+        self.res_operands = [i for i in range(1+num_contractions, len(maps))]
+
+        # Verify that each set of matching operands have contraction maps.
         lhs_map = maps[0]
         rhs_maps = maps[1:1+num_contractions]
         res_maps = maps[1+num_contractions:]
-        self.num_contractions = num_contractions
-
-        # Verify that each set of matching operands have contraction maps.
         lhs_operands_dims = []
         rhs_operands_dims = []
         res_operands_dims = []

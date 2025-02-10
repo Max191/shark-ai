@@ -391,6 +391,7 @@ def generate_compilation_infos(
     subgroup_size: int,
     subgroup_m_count: int,
     subgroup_n_count: int,
+    promote_operands: list[int],
     codegen_pipeline: iree_codegen.DispatchLoweringPassPipeline,
     pipeline_options_search_space: PipelineOptionsSearchSpace,
     allowed_waves_per_eu: list[int],
@@ -403,7 +404,7 @@ def generate_compilation_infos(
         "reduction": reduction_tile_sizes,
         "subgroup_m_count": subgroup_m_count,
         "subgroup_n_count": subgroup_n_count,
-        "promote_operands": [0, 1],
+        "promote_operands": promote_operands,
     }
     if codegen_pipeline == iree_codegen.DispatchLoweringPassPipeline.LLVMGPUTileAndFuse:
         lowering_config_args["subgroup"] = subgroup_tile_sizes
@@ -642,6 +643,9 @@ def generate_solutions(
             [lookup(v) for v in k_vars],
         )
 
+        promote_operands = [0, 1]
+        if problem_size.lhs_operands and problem_size.rhs_operands:
+            promote_operands = problem_size.lhs_operands + problem_size.rhs_operands
         compilation_infos = generate_compilation_infos(
             tuner_ctx,
             mma_attr,
@@ -652,6 +656,7 @@ def generate_solutions(
             lookup(subgroup_size),
             lookup(sg_m_cnt),
             lookup(sg_n_cnt),
+            promote_operands,
             codegen_pipeline,
             pipeline_options_search_space,
             allowed_waves_per_eu,
