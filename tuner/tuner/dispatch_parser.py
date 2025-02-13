@@ -104,7 +104,7 @@ class ContractionOpInterfaceParser(DispatchParser):
 class HorizontalMultiContractionOpInterfaceParser(DispatchParser):
     def supports(self, op_name: str) -> bool:
         return (
-            "generic" in op_name
+            "horizontal_multi_contract" in op_name
         )
 
     def get_multi_contraction_operation(
