@@ -17,6 +17,8 @@ from .dispatch_constraints import *
 from .dispatch_parser import *
 from .op_matchers import ROOT_OP_ATTR_NAME
 
+extra_matchers = None
+extra_matcher_fn_calls = None
 
 def get_matcher_calls(op: ir.Operation, matchers: list[ir.Attribute], actions: list[ir.Attribute]):
     if not isinstance(op.opview, transform.ForeachMatchOp):
@@ -58,12 +60,12 @@ def get_extra_spec_info(spec_file: Optional[Path], used_matcher_names: list[str]
     return matchers_str, matcher_calls_str
 
 def get_placeholder_spec(context: ir.Context, args: argparse.Namespace) -> ir.Module:
-    extra_matchers, extra_matcher_fn_calls = get_extra_spec_info(
+    base_matchers, base_matcher_fn_calls = get_extra_spec_info(
         args.extra_spec_file,
         used_matcher_names=[],
         used_action_names=[],
     )
-    if len(extra_matcher_fn_calls) == 0:
+    if len(base_matcher_fn_calls) == 0:
         spec_text = f"""
             module attributes {{ transform.with_named_sequence }} {{
                 transform.named_sequence
@@ -76,12 +78,12 @@ def get_placeholder_spec(context: ir.Context, args: argparse.Namespace) -> ir.Mo
     else:
         spec_text = f"""
             module attributes {{ transform.with_named_sequence }} {{
-                {extra_matchers}
+                {base_matchers}
                 transform.named_sequence
                 @__kernel_config(%variant_op: !transform.any_op {{transform.consumed}}) -> !transform.any_op
                     attributes {{ iree_codegen.tuning_spec_entrypoint }} {{
                     %res = transform.foreach_match in %variant_op
-                        {extra_matcher_fn_calls}
+                        {base_matcher_fn_calls}
                     : (!transform.any_op) -> (!transform.any_op)
                     transform.yield %res : !transform.any_op
                 }}
@@ -99,13 +101,15 @@ def build_td_spec(
     func_name: str,
     args: argparse.Namespace,
 ) -> ir.Module:
-    extra_matchers, extra_matcher_fn_calls = get_extra_spec_info(
-        args.extra_spec_file,
-        used_matcher_names=[func_name],
-        used_action_names=["apply_op_config"],
-    )
-    if len(extra_matcher_fn_calls) > 0:
-        extra_matcher_fn_calls = ", " + extra_matcher_fn_calls
+    global extra_matcher_fn_calls, extra_matchers
+    if extra_matcher_fn_calls is None and extra_matchers is None:
+        extra_matchers, extra_matcher_fn_calls = get_extra_spec_info(
+            args.extra_spec_file,
+            used_matcher_names=[func_name],
+            used_action_names=["apply_op_config"],
+        )
+        if len(extra_matcher_fn_calls) > 0:
+            extra_matcher_fn_calls = ", " + extra_matcher_fn_calls
     bbargs = []
     # The `root_op` attribute will prevent matching of ops without the attr in
     # the resulting TD spec matcher if it is not removed, so we remove it here.
