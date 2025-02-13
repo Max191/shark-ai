@@ -198,9 +198,9 @@ class ProblemSize:
     res_type: ShapedType
     dispatch_kind: DispatchKind
     contraction_dims: ContractionDimensions
-    lhs_operands: Optional[list[int]]
-    rhs_operands: Optional[list[int]]
-    res_operands: Optional[list[int]]
+    lhs_operands: Optional[list[int]] = None
+    rhs_operands: Optional[list[int]] = None
+    res_operands: Optional[list[int]] = None
     lhs_expr_dims: Optional[list[list[int]]] = None
     rhs_expr_dims: Optional[list[list[int]]] = None
     res_expr_dims: Optional[list[list[int]]] = None
