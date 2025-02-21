@@ -312,7 +312,7 @@ def read_input_mlir(filename: str) -> list[str]:
 
 @dataclass
 class ConvDimInfo:
-    n: int
+    n: list[int]
     oh: int
     ow: int
     oc: int
@@ -334,7 +334,6 @@ class ConvDimInfo:
         assert len(conv_dims.filterLoop) == 2, "only 2 filter loops supported"
         assert len(conv_dims.outputChannel) == 1, "only 1 output channel supported"
         assert len(conv_dims.inputChannel) == 1, "only 1 input channel supported"
-        assert len(conv_dims.batch) == 1, "only 1 batch dimension supported"
         assert (
             len(conv_dims.outputImage) == 2
         ), "only 2 output image dimensions supported"
@@ -350,7 +349,7 @@ class ConvDimInfo:
 
         res_shape = res_shaped_type.shape
         res_dict = {inner_list[0]: index for index, inner_list in enumerate(res_dims)}
-        n = res_shape[res_dict.get(conv_dims.batch[0], -1)]
+        n = [res_shape[res_dict.get(batch_dim, -1)] for batch_dim in conv_dims.batch]
         oh = res_shape[res_dict.get(conv_dims.outputImage[0], -1)]
         ow = res_shape[res_dict.get(conv_dims.outputImage[1], -1)]
 

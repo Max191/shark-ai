@@ -200,9 +200,24 @@ class ConvolutionOpInterfaceParser(DispatchParser):
         dim_info = ConvDimInfo.from_rhs_res(
             rhs_type, matcher.rhs_expr_dims, res_type, matcher.res_expr_dims, conv_dims
         )
+        if len(dim_info.n) == 1:
+            contraction_dims = ContractionDimensions(
+                m=[0, 1, 2],
+                n=[3],
+                k=[4, 5, 6],
+            )
+        elif len(dim_info.n) == 0:
+            contraction_dims = ContractionDimensions(
+                m=[0, 1],
+                n=[2],
+                k=[3, 4, 5],
+            )
+        else:
+            raise ValueError("Expected conv to have 0 or 1 batch dimensions")
+
         return ProblemSize(
             matmul_size=ContractionSizes(
-                M=[dim_info.n, dim_info.oh, dim_info.ow],
+                M=[*dim_info.n, dim_info.oh, dim_info.ow],
                 N=[dim_info.oc],
                 K=[dim_info.fh, dim_info.fw, dim_info.ic],
             ),
@@ -210,11 +225,7 @@ class ConvolutionOpInterfaceParser(DispatchParser):
             rhs_type=ShapedType(rhs_type.shape, rhs_type.element_type),
             res_type=ShapedType(res_type.shape, res_type.element_type),
             dispatch_kind=DispatchKind.conv,
-            contraction_dims=ContractionDimensions(
-                m=[0, 1, 2],
-                n=[3],
-                k=[4, 5, 6],
-            ),
+            contraction_dims=contraction_dims,
             lhs_expr_dims=matcher.lhs_expr_dims,
             rhs_expr_dims=matcher.rhs_expr_dims,
             res_expr_dims=matcher.res_expr_dims,

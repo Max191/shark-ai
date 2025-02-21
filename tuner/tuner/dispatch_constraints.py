@@ -473,7 +473,6 @@ def adjust_problem_size_for_pipeline(
 
     # Reset the contraction dims and matmul sizes using the new K contraction dims.
     k_contraction_dims_start = problem_size.contraction_dims.k[0]
-    assert k_contraction_dims_start == 4, "We assume k dims are innermost."
 
     k_index_dict = {
         rhs_result_expr_dim_set[0]: i
