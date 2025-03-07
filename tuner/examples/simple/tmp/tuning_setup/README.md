@@ -60,11 +60,10 @@ python tuning_setup/collect_benchmarks.py /path/to/sdxl-scripts/int8-model/bench
 
 9. Run tuner for each benchmark:
 ```shell
-`./tuning_setup/tune_top_dispatches.sh <codegen-pipeline> <chip-configuration-mode> <num-tunable-dispatches> <tunable-dispatches-dir> <model-input-ir>`
+`./tuning_setup/tune_top_dispatches.sh <codegen-pipeline> <chip-configuration-mode> <tunable-dispatches-dir> <model-input-ir>`
 ```
   - `<codegen-pipeline>` can be either `llvmgpu_tile_and_fuse` or `llvmgpu_vector_distribute`. The tile_and_fuse pipeline is generally preferred, but vector_distribute must be used for horizontal contraction fusion.
   - `<chip-configuration-mode>` is `qpx`, `cpx`, or `spx`.
-  - `<num-tunable-dispatches>` is the number of dispatches you collected in step 7.
   - `<tunable-dispatches-dir>` is the directory with the top dispatches i.e., `top_dispatch_benchmarks`.
   - `<model-input-ir>` is the path to the punet model IR. This will be something like `/home/mdawkins/sdxl-scripts/int8-model/base_ir/stable_diffusion_xl_base_1_0_bs1_64_1024x1024_i8_punet.mlir`
 

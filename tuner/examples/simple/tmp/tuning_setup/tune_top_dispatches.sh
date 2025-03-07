@@ -1,20 +1,23 @@
-
 set -uo pipefail
 
-if (( $# != 5 )); then
-  echo "usage: $0 <codegen-pipeline> <chip-configuration-mode> <num-tunable-dispatches> <tunable-dispatches-dir> <model-input-ir>"
+if (( $# != 4 )); then
+  echo "usage: $0 <codegen-pipeline> <chip-configuration-mode> <tunable-dispatches-dir> <model-input-ir>"
   exit 1
 fi
 
 readonly TUNING_SETUP_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd)"
 readonly CODEGEN_PIPELINE="${1}"
 readonly CHIP_CONFIGURATION="${2}"
-readonly NUM_DISPATCHES="${3}"
-readonly BENCHMARKS_PATH="$(realpath $4)"
-readonly MODEL_IR="$(realpath $5)"
+readonly BENCHMARKS_PATH="$(realpath $3)"
+readonly MODEL_IR="$(realpath $4)"
 
 if ! [[ "${CHIP_CONFIGURATION}" =~ ^(cpx|qpx|spx)$ ]]; then
   echo "Allowed chip-configuration-modes: cpx, qpx, spx"
+  exit 1
+fi
+
+if [[ ! -d "${BENCHMARKS_PATH}" ]]; then
+  echo "Error: ${BENCHMARKS_PATH} is not a directory"
   exit 1
 fi
 
@@ -41,12 +44,11 @@ touch "${TUNING_SETUP_DIR}/punet_benchmark_flags.txt"
 
 set -x
 
-for ((i=1; i <= NUM_DISPATCHES; i++)) ; do
+for benchmark_file in "${BENCHMARKS_PATH}"/*; do
   ${TUNING_SETUP_DIR}/run_dispatch_tuning.sh \
       "$MODEL_IR" \
-      "$BENCHMARKS_PATH" \
+      "$benchmark_file" \
       "${TUNING_SETUP_DIR}/current_full_spec.mlir" \
-      $i \
       $PARTITIONS_PER_DEVICE \
       $CODEGEN_PIPELINE \
       6000 \

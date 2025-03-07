@@ -2,20 +2,19 @@
 set -euo pipefail
 
 if (( $# < 7 )); then
-  echo "usage: $0 <model-path> <benchmarks-path> <extra-spec-path> <top-dispatch-num> <partitions-per-device> <codegen-pipeline> <num-candidates> [extra-args]"
+  echo "usage: $0 <model-path> <benchmark-path> <extra-spec-path> <partitions-per-device> <codegen-pipeline> <num-candidates> [extra-args]"
   exit 1
 fi
 
 readonly TUNER_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}" )/../../../.." &> /dev/null && pwd)"
 readonly TUNING_SETUP_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd)"
 readonly MODEL_PATH="${1}"
-readonly BENCHMARKS_PATH="${2}"
+readonly BENCHMARK_PATH="${2}"
 readonly EXTRA_SPEC_PATH="${3}"
-readonly TOP_DISPATCH="$4"
-readonly PARTITIONS_PER_DEVICE="$5"
-readonly PIPELINE="$6"
-NUM_CANDIDATES="$7"
-EXTRA_FLAGS="${@:8}"
+readonly PARTITIONS_PER_DEVICE="$4"
+readonly PIPELINE="$5"
+NUM_CANDIDATES="$6"
+EXTRA_FLAGS="${@:7}"
 
 DEVICES="hip://0"
 if ((PARTITIONS_PER_DEVICE != 1)); then
@@ -34,7 +33,7 @@ cd "${TUNER_DIR}"
 set -x
 python -m examples.simple \
     "${MODEL_PATH}" \
-    "${BENCHMARKS_PATH}/top_${TOP_DISPATCH}_benchmark.mlir" \
+    "${BENCHMARK_PATH}" \
     "--simple-compile-flags-file=${TUNING_SETUP_DIR}/punet_compile_flags.txt" \
     "--simple-model-benchmark-flags-file=${TUNING_SETUP_DIR}/punet_benchmark_flags.txt" \
     "--extra-spec-file=${EXTRA_SPEC_PATH}" \
