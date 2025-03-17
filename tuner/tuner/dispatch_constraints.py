@@ -398,8 +398,15 @@ def generate_compilation_infos(
     codegen_pipeline: iree_codegen.DispatchLoweringPassPipeline,
     pipeline_options_search_space: PipelineOptionsSearchSpace,
     allowed_waves_per_eu: list[int],
+    needs_padding: bool,
 ) -> list[iree_codegen.CompilationInfoAttr]:
     # Create the LoweringConfigAttr.
+    if needs_padding:
+        _intrinsic_m, _intrinsic_n, intrinsic_k = mma_attr.mnk_shape
+        if not all(r == 0 for r in reduction_tile_sizes[:-1]):
+            raise NotImplementedError("Assuming only trailing dimension is reduction")
+        padding = (*workgroup_tile_sizes[:-1], reduction_tile_sizes[-1] * intrinsic_k)
+
     lowering_config_args = {
         "tuner_ctx": tuner_ctx,
         "mma_kind": mma_attr,
@@ -409,6 +416,8 @@ def generate_compilation_infos(
         "subgroup_n_count": subgroup_n_count,
         "promote_operands": promote_operands,
     }
+    if needs_padding:
+        lowering_config_args["padding"] = padding
     if codegen_pipeline == iree_codegen.DispatchLoweringPassPipeline.LLVMGPUTileAndFuse:
         lowering_config_args["subgroup"] = subgroup_tile_sizes
 
@@ -582,11 +591,14 @@ def generate_solutions(
     while solver.check() == z3.sat:
         model = solver.model()
         lookup = lambda var: model[var].as_long()
-        mma_attr = getMMAAttr(
-            problem_size.res_type.element_type,
+        intrinsic_mnk_shape = (
             lookup(intrinsic_mn),
             lookup(intrinsic_mn),
             lookup(intrinsic_k),
+        )
+        mma_attr = getMMAAttr(
+            problem_size.res_type.element_type,
+            *intrinsic_mnk_shape,
             problem_size.lhs_type.element_type,
             problem_size.rhs_type.element_type,
         )
@@ -645,7 +657,11 @@ def generate_solutions(
             [lookup(v) for v in k_vars],
         )
 
-        promote_operands = [0, 1]
+        needs_padding = any(p[-1] % i != 0 for p, i in zip(problem_size.MNK, intrinsic_mnk_shape, strict=True))
+        if needs_padding:
+            promote_operands = [0, 1, 2]
+        else:
+            promote_operands = [0, 1]
         if problem_size.lhs_operands and problem_size.rhs_operands:
             promote_operands = problem_size.lhs_operands + problem_size.rhs_operands
         compilation_infos = generate_compilation_infos(
@@ -662,6 +678,7 @@ def generate_solutions(
             codegen_pipeline,
             pipeline_options_search_space,
             allowed_waves_per_eu,
+            needs_padding=needs_padding,
         )
 
         solver.add(z3.simplify(z3.Not(z3.And(list(x == model[x] for x in all_vars)))))
